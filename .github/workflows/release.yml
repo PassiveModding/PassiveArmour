@@ -1,0 +1,94 @@
+﻿name: release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  check_gradle_version:
+    # parse gradle.properties and check mod_version the tag
+    # matches the version in gradle.properties
+    name: Check gradle version
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+
+      - name: check gradle version
+        run: |
+          gradle_version=$(grep 'mod_version' gradle.properties | cut -d'=' -f2 | tr -d ' ')
+          tag_version=${GITHUB_REF#refs/tags/}
+          if [ "$gradle_version" != "$tag_version" ]; then
+            echo "Gradle version $gradle_version does not match tag version $tag_version"
+            exit 1
+          else
+            echo "Gradle version $gradle_version matches tag version $tag_version"
+          fi
+        env:
+          GITHUB_REF: ${{ github.ref }}
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    needs: [ check_gradle_version ]
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: setup jdk
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: build
+        run: ./gradlew build
+
+      - name: capture libs
+        uses: actions/upload-artifact@v4
+        with:
+          name: libs
+          path: build/libs/
+
+      - name: capture devlibs
+        uses: actions/upload-artifact@v4
+        with:
+          name: devlibs
+          path: build/devlibs/
+
+  release:
+    name: Create a release
+    runs-on: ubuntu-latest
+    needs: [ build ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download libs
+        uses: actions/download-artifact@v4
+        with:
+          name: libs
+          path: build/libs/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/libs/*.jar
+          prerelease: false
+          generate_release_notes: true # Automatically makes a release body from PRs since the last release.
+          fail_on_unmatched_files: true # If the files arent found, fail the workflow and abort the release.
