@@ -1,0 +1,32 @@
+{
+	"schemaVersion": 1,
+	"id": "passivearmour",
+	"version": "${version}",
+	"name": "PassiveArmour",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"PassiveModding"
+	],
+	"contact": {
+		"homepage": "https://ramen.fyi",
+		"sources": "https://github.com/PassiveModding/PassiveArmour"
+	},
+	"license": "MIT",
+	"icon": "assets/passivearmour/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"fyi.ramen.passivearmour.PassiveArmour"
+		]
+	},
+	"mixins": [],
+	"depends": {
+		"fabricloader": ">=0.16.12",
+		"minecraft": "~1.21.5",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
