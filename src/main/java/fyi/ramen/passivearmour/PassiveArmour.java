@@ -99,6 +99,19 @@ public class PassiveArmour implements ModInitializer {
 
         // Get the existing asset id and set it back to the original
         RegistryKey<EquipmentAsset> assetId = val.get();
+
+        // if item is a netherite item, restore to netherite instead of reading the id since it may have been upgraded from diamond
+        var netheriteIds = List.of(
+            registerVanillaItem("netherite_helmet"),
+            registerVanillaItem("netherite_chestplate"),
+            registerVanillaItem("netherite_leggings"),
+            registerVanillaItem("netherite_boots")
+        );
+        var itemStackId = itemStack.getRegistryEntry().getKey();
+        if (itemStackId.isPresent() && netheriteIds.contains(itemStackId.get())) {
+            assetId = registerVanilla("netherite");
+        }
+
         itemStack.set(DataComponentTypes.EQUIPPABLE, withAssetId(equippable, assetId));
         nbtCompound.remove(EQUIPPABLE_ASSET_ID);
         itemStack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbtCompound));
@@ -160,6 +173,10 @@ public class PassiveArmour implements ModInitializer {
 	private static RegistryKey<EquipmentAsset> registerVanilla(String name) {
 		return RegistryKey.of(EquipmentAssetKeys.REGISTRY_KEY, Identifier.ofVanilla(name));
 	}
+
+    private static RegistryKey<EquipmentAsset> registerVanillaItem(String name) {
+        return RegistryKey.of(RegistryKey.ofRegistry(Identifier.ofVanilla("item")), Identifier.ofVanilla(name));
+    }
 
     private static EquippableComponent withAssetId(EquippableComponent component, RegistryKey<EquipmentAsset> assetId) {
         EquippableComponent.Builder builder = EquippableComponent.builder(component.slot());
