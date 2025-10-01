@@ -26,158 +26,160 @@ import java.util.List;
 import java.util.Optional;
 
 public class PassiveArmour implements ModInitializer {
+    // Constants
     public static final String MOD_ID = "passivearmour";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final String EQUIPPABLE_ASSET_ID = "EQUIPPABLE_ASSET_ID";
+    private static final String CMD_RESTORE_ARMOUR = "restore_armour";
+    private static final String CMD_HIDE_ARMOUR = "hide_armour";
+    private static final String INVISIBLE_LORE_TEXT = "Invisible";
+    private static final String ASSET_AIR = "air";
+    private static final String ASSET_NETHERITE = "netherite";
+    private static final String ERROR_NOT_PLAYER = "You must be a player to use this command";
+    private static final String ERROR_NO_ITEM = "You must be holding an item";
+    private static final String ERROR_NOT_EQUIPPABLE = "This item is not equippable";
+    private static final String ERROR_NO_ASSET_ID = "This item does not have an asset id";
+    private static final String MSG_VISIBLE = "Equipment now visible";
+    private static final String MSG_INVISIBLE = "Equipment now invisible";
 
     @Override
     public void onInitialize() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            dispatcher.register(CommandManager
-                    .literal("restore_armour")
-                    .executes(context -> RestoreArmour(context)));
-            dispatcher.register(CommandManager
-                    .literal("hide_armour")
-                    .executes(context -> HideArmour(context)));
+            registerCommands(dispatcher);
         });
     }
 
-    private record ValidationResult(ItemStack itemStack, ServerPlayerEntity player, EquippableComponent component,
-                                    RegistryKey<EquipmentAsset> assetId, NbtCompound nbtCompound) {
+    // Command registration helper
+    private static void registerCommands(com.mojang.brigadier.CommandDispatcher<net.minecraft.server.command.ServerCommandSource> dispatcher) {
+        dispatcher.register(CommandManager.literal(CMD_RESTORE_ARMOUR).executes(PassiveArmour::RestoreArmour));
+        dispatcher.register(CommandManager.literal(CMD_HIDE_ARMOUR).executes(PassiveArmour::HideArmour));
     }
 
-    private static Optional<ValidationResult> ValidateArmourCtx(CommandContext<ServerCommandSource> context) {
-        // Get the player who executed the command
+    // Validation result record
+    private record ValidationResult(ItemStack itemStack, ServerPlayerEntity player, EquippableComponent component,
+                                    RegistryKey<EquipmentAsset> assetId, NbtCompound nbtCompound) {}
+
+    // Validation logic
+    private static Optional<ValidationResult> validateArmourContext(CommandContext<ServerCommandSource> context) {
         ServerPlayerEntity player = context.getSource().getPlayer();
         if (player == null) {
-            context.getSource().sendError(Text.literal("You must be a player to use this command"));
+            sendError(context, ERROR_NOT_PLAYER);
             return Optional.empty();
         }
-
-        // Get the item in the player's main hand
         ItemStack itemStack = player.getMainHandStack();
         if (itemStack.isEmpty()) {
-            context.getSource().sendError(Text.literal("You must be holding an item"));
+            sendError(context, ERROR_NO_ITEM);
             return Optional.empty();
         }
-
-        // Check if the item stack has the equippable component
         EquippableComponent equippable = itemStack.getOrDefault(DataComponentTypes.EQUIPPABLE, null);
         if (equippable == null) {
-            context.getSource().sendError(Text.literal("This item is not equippable"));
+            sendError(context, ERROR_NOT_EQUIPPABLE);
             return Optional.empty();
         }
-
         if (equippable.assetId().isEmpty()) {
-            context.getSource().sendError(Text.literal("This item does not have an asset id"));
+            sendError(context, ERROR_NO_ASSET_ID);
             return Optional.empty();
         }
-
         NbtComponent customData = itemStack.getOrDefault(DataComponentTypes.CUSTOM_DATA, NbtComponent.DEFAULT);
         NbtCompound nbt = customData.copyNbt();
-
         return Optional.of(new ValidationResult(itemStack, player, equippable, equippable.assetId().get(), nbt));
     }
 
-    private static int RestoreArmour(CommandContext<ServerCommandSource> context) {
-        Optional<ValidationResult> validationResult = ValidateArmourCtx(context);
-        if (validationResult.isEmpty()) {
-            return 0;
-        }
+    // Error/success messaging helpers
+    private static void sendError(CommandContext<ServerCommandSource> context, String message) {
+        context.getSource().sendError(Text.literal(message));
+    }
+    private static void sendSuccess(CommandContext<ServerCommandSource> context, String message) {
+        context.getSource().sendMessage(Text.literal(message));
+    }
 
-        ValidationResult result = validationResult.get();
-        ItemStack itemStack = result.itemStack;
-        ServerPlayerEntity player = result.player;
-        EquippableComponent equippable = result.component;
-        NbtCompound nbtCompound = result.nbtCompound;
-
-        Optional<RegistryKey<EquipmentAsset>> val = nbtCompound.get(EQUIPPABLE_ASSET_ID, RegistryKey.createCodec(EquipmentAssetKeys.REGISTRY_KEY));
-        if (val.isEmpty()) {
-            context.getSource().sendError(Text.literal("This item does not have an asset id"));
-            return 0;
-        }
-
-        // Get the existing asset id and set it back to the original
-        RegistryKey<EquipmentAsset> assetId = val.get();
-
-        // if item is a netherite item, restore to netherite instead of reading the id since it may have been upgraded from diamond
-        var netheriteIds = List.of(
+    // Netherite item registry keys
+    private static List<RegistryKey<?>> getNetheriteItemKeys() {
+        return List.of(
             registerVanillaItem("netherite_helmet"),
             registerVanillaItem("netherite_chestplate"),
             registerVanillaItem("netherite_leggings"),
             registerVanillaItem("netherite_boots")
         );
+    }
+    private static boolean isNetheriteItem(ItemStack itemStack) {
         var itemStackId = itemStack.getRegistryEntry().getKey();
-        if (itemStackId.isPresent() && netheriteIds.contains(itemStackId.get())) {
-            assetId = registerVanilla("netherite");
-        }
+        return itemStackId.isPresent() && getNetheriteItemKeys().contains(itemStackId.get());
+    }
 
+    // Command logic
+    private static int RestoreArmour(CommandContext<ServerCommandSource> context) {
+        Optional<ValidationResult> validationResult = validateArmourContext(context);
+        if (validationResult.isEmpty()) return 0;
+        ValidationResult result = validationResult.get();
+        ItemStack itemStack = result.itemStack;
+        EquippableComponent equippable = result.component;
+        NbtCompound nbtCompound = result.nbtCompound;
+        Optional<RegistryKey<EquipmentAsset>> val = nbtCompound.get(EQUIPPABLE_ASSET_ID, RegistryKey.createCodec(EquipmentAssetKeys.REGISTRY_KEY));
+        if (val.isEmpty()) {
+            sendError(context, ERROR_NO_ASSET_ID);
+            return 0;
+        }
+        RegistryKey<EquipmentAsset> assetId = val.get();
+        if (isNetheriteItem(itemStack)) {
+            assetId = registerVanilla(ASSET_NETHERITE);
+        }
         itemStack.set(DataComponentTypes.EQUIPPABLE, withAssetId(equippable, assetId));
         nbtCompound.remove(EQUIPPABLE_ASSET_ID);
         itemStack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbtCompound));
-
         itemStack.apply(DataComponentTypes.LORE, LoreComponent.DEFAULT, loreComponent -> {
             List<Text> loreList = new ArrayList<>(loreComponent.lines());
-            loreList.removeIf(text -> text.getString().equals("Invisible"));
+            loreList.removeIf(text -> text.getString().equals(INVISIBLE_LORE_TEXT));
             return new LoreComponent(loreList);
         });
-
-        context.getSource().sendMessage(Text.literal("Equipment now visible"));
-
+        sendSuccess(context, MSG_VISIBLE);
         return 1;
     }
 
     private static int HideArmour(CommandContext<ServerCommandSource> context) {
-        return SetArmour(context, registerVanilla("air"));
+        return setArmour(context, registerVanilla(ASSET_AIR));
     }
 
+    // For future extensibility (not used currently)
     private static int SetArmourCmdArgument(CommandContext<ServerCommandSource> context) {
         String assetIdStr = context.getArgument("assetId", String.class);
         RegistryKey<EquipmentAsset> assetIdArg = registerVanilla(assetIdStr);
-        return SetArmour(context, assetIdArg);
+        return setArmour(context, assetIdArg);
     }
 
-    private static int SetArmour(CommandContext<ServerCommandSource> context, RegistryKey<EquipmentAsset> assetIdArg) {
-        context.getSource().sendMessage(Text.literal("Asset ID: " + assetIdArg));
-
-        Optional<ValidationResult> validationResult = ValidateArmourCtx(context);
-        if (validationResult.isEmpty()) {
-            return 0;
-        }
-
+    private static int setArmour(CommandContext<ServerCommandSource> context, RegistryKey<EquipmentAsset> assetIdArg) {
+        sendSuccess(context, "Asset ID: " + assetIdArg);
+        Optional<ValidationResult> validationResult = validateArmourContext(context);
+        if (validationResult.isEmpty()) return 0;
         ValidationResult result = validationResult.get();
         ItemStack itemStack = result.itemStack;
-        ServerPlayerEntity player = result.player;
         EquippableComponent equippable = result.component;
         NbtCompound nbtCompound = result.nbtCompound;
-
         Optional<RegistryKey<EquipmentAsset>> val = nbtCompound.get(EQUIPPABLE_ASSET_ID, RegistryKey.createCodec(EquipmentAssetKeys.REGISTRY_KEY));
         if (val.isEmpty()) {
             nbtCompound.put(EQUIPPABLE_ASSET_ID, RegistryKey.createCodec(EquipmentAssetKeys.REGISTRY_KEY), result.assetId);
         }
-
-        // Set the asset id to the new value
         itemStack.set(DataComponentTypes.EQUIPPABLE, withAssetId(equippable, assetIdArg));
         itemStack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbtCompound));
         itemStack.apply(DataComponentTypes.LORE, LoreComponent.DEFAULT, loreComponent -> {
             List<Text> loreList = new ArrayList<>(loreComponent.lines());
-            loreList.removeIf(text -> text.getString().equals("Invisible"));
-            loreList.add(Text.literal("Invisible"));
+            loreList.removeIf(text -> text.getString().equals(INVISIBLE_LORE_TEXT));
+            loreList.add(Text.literal(INVISIBLE_LORE_TEXT));
             return new LoreComponent(loreList);
         });
-
-        context.getSource().sendMessage(Text.literal("Equipment now invisible"));
+        sendSuccess(context, MSG_INVISIBLE);
         return 1;
     }
 
-	private static RegistryKey<EquipmentAsset> registerVanilla(String name) {
-		return RegistryKey.of(EquipmentAssetKeys.REGISTRY_KEY, Identifier.ofVanilla(name));
-	}
-
+    // Registry helpers
+    private static RegistryKey<EquipmentAsset> registerVanilla(String name) {
+        return RegistryKey.of(EquipmentAssetKeys.REGISTRY_KEY, Identifier.ofVanilla(name));
+    }
     private static RegistryKey<EquipmentAsset> registerVanillaItem(String name) {
         return RegistryKey.of(RegistryKey.ofRegistry(Identifier.ofVanilla("item")), Identifier.ofVanilla(name));
     }
 
+    // Equippable builder helper
     private static EquippableComponent withAssetId(EquippableComponent component, RegistryKey<EquipmentAsset> assetId) {
         EquippableComponent.Builder builder = EquippableComponent.builder(component.slot());
         builder.model(assetId);
@@ -186,10 +188,11 @@ public class PassiveArmour implements ModInitializer {
         builder.equipOnInteract(component.equipOnInteract());
         builder.swappable(component.swappable());
         builder.equipSound(component.equipSound());
+        builder.canBeSheared(component.canBeSheared());
+        builder.shearingSound(component.shearingSound());
         if (component.allowedEntities().isPresent()) {
             builder.allowedEntities(component.allowedEntities().get());
         }
-
         if (component.cameraOverlay().isPresent()) {
             builder.cameraOverlay(component.cameraOverlay().get());
         }
